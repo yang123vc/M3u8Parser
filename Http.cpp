@@ -12,6 +12,15 @@
 #include <event2/http.h>
 #include <event2/dns.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#include <stdlib.h>
+
+#include "M3U8Parser.h"
+#include "MediaSegment.h"
 
 
 
@@ -61,6 +70,10 @@ class Http {
 
         void setRequestCallBack(void (*myRequestCallBack1)(struct evhttp_request *, void *)) {
             myRequestCallBack = myRequestCallBack1;
+        }
+
+        std::string getUperUrl() {
+            return uperUrl;
         }
 
         bool setUrl(const char *url) {
@@ -151,45 +164,94 @@ class Http {
             std::cout<<"url:"<<url<<"scheme: "<<scheme<<" host:"<<host<<" port:"<<port<<" path:"<<path<<std::endl;
             std::cout<<"uperUrl:"<<uperUrl<<std::endl;
         }
+
+        static int getContentLength(struct evhttp_request *req) {
+            struct evkeyvalq *responseHeader = evhttp_request_get_input_headers(req);
+            const char* contentLen = evhttp_find_header(responseHeader, "Content-Length");
+            std::cout<<"contentLen: "<<contentLen<<std::endl;
+            return atoi(contentLen);
+        }
 };
+
+M3U8Parser *parser;
+std::string currentTsPath;
+std::string currentTsWritePath;
+
+static void TsRequestCallBack(struct evhttp_request *req, void *ctx) {
+    FILE *tsFile = fopen(currentTsWritePath.c_str(), "w+");
+    int nread = 0;
+    unsigned char* buf[1024];
+    std::cout<<"begin write "<<currentTsPath<<std::endl;
+    if(req == NULL) {
+        int errcode = EVUTIL_SOCKET_ERROR();
+        std::cout<<"socket error "<<evutil_socket_error_to_string(errcode)<<" code "<<errcode<<std::endl;
+        return;
+    }
+    while((nread = evbuffer_remove(evhttp_request_get_input_buffer(req),
+                    buf, sizeof(buf) - 1)) > 0) {
+        fwrite(buf, sizeof(unsigned char), nread, tsFile);
+    }
+    std::cout<<"end write "<<currentTsPath<<std::endl;
+    fclose(tsFile);
+}
+
+
+static void M3u8RequestCallBack(struct evhttp_request *req, void *ctx) {
+    int contentLen = Http::getContentLength(req);
+    int nread = 0;
+    char* buf = new char[contentLen];
+    char* httpBuf = new char[1500];
+    int currentPos = 0;
+    std::cout<<"start parse m3u8"<<std::endl;
+    if(req == NULL) {
+        int errcode = EVUTIL_SOCKET_ERROR();
+        std::cout<<"socket error "<<evutil_socket_error_to_string(errcode)<<" code "<<errcode<<std::endl;
+        return;
+    }
+    while((nread = evbuffer_remove(evhttp_request_get_input_buffer(req),
+                    httpBuf, sizeof(httpBuf) - 1)) > 0) {
+        memcpy(buf+currentPos, httpBuf, nread);
+        currentPos += nread;
+    }
+    //printf("%s\n", buf);
+    parser = new M3U8Parser();
+    parser->parser(buf, currentPos);
+    std::cout<<"parse m3u8 end"<<std::endl;
+}
 
 class TsDownloadClient : public Http {
     private:
     public:
-        TsDownloadClient(const char *url, const char *tsPath) :
+        TsDownloadClient(const char *url) :
             Http(url) {
-                setRequestCallBack(requestCallBackTs);
+                setRequestCallBack(TsRequestCallBack);
                 initHttpConn();
             }
-
-        static void requestCallBackTs(struct evhttp_request *req, void *ctx) {
-            FILE *tsFile = fopen("testFile.html", "w+");
-            int nread = 0;
-            unsigned char* buf[1024];
-            std::cout<<"enter requestCallBack"<<std::endl;
-            if(req == NULL) {
-                int errcode = EVUTIL_SOCKET_ERROR();
-                std::cout<<"socket error "<<evutil_socket_error_to_string(errcode)<<" code "<<errcode<<std::endl;
-                return;
-            }
-            while((nread = evbuffer_remove(evhttp_request_get_input_buffer(req),
-                            buf, sizeof(buf) - 1)) > 0) {
-                fwrite(buf, sizeof(unsigned char), nread, tsFile);
-            }
-            std::cout<<"leave requestCallBack"<<std::endl;
-                fclose(tsFile);
-        }
 
         ~TsDownloadClient() {
         }
 };
 
+class M3u8DownloadClient : public Http {
+    private:
+    public:
+        M3u8DownloadClient(const char *url) :
+            Http(url) {
+                setRequestCallBack(M3u8RequestCallBack);
+                initHttpConn();
+            }
+
+        ~M3u8DownloadClient() {
+        }
+};
+
+
 
 
 int main(int argc, char **argv) {
-    TsDownloadClient* http;
+    M3u8DownloadClient* http;
     try {
-        http = new TsDownloadClient(argv[1], "test.html");
+        http = new M3u8DownloadClient(argv[1]);
         http->initHost();
         http->setConnectClose();
     } catch(HttpExeption e) {
@@ -197,5 +259,21 @@ int main(int argc, char **argv) {
         return -1;
     }
     http->request();
+    M3UMedia *m3uMedia = parser->getM3uMedia();
+    std::list<MediaSegment> mediaSegments = m3uMedia->getSegmentList();
+    for(std::list<MediaSegment>::iterator it = mediaSegments.begin(); it != mediaSegments.end(); ++it) {
+        currentTsPath = http->getUperUrl() + (*it).getUri();
+        currentTsWritePath = "ts/" + (*it).getUri();
+        TsDownloadClient tsClient(currentTsPath.c_str());
+        try {
+            TsDownloadClient tsClient = TsDownloadClient(currentTsPath.c_str());
+            tsClient.initHost();
+            tsClient.setConnectClose();
+            tsClient.request();
+        } catch(HttpExeption e) {
+            std::cout<<e.what()<<std::endl;
+            return -1;
+        }
+    }
     return 0;
 }

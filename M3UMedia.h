@@ -108,6 +108,10 @@ class M3UMedia : public M3U8Base {
             return true;
         }
 
+        std::list<MediaSegment> getSegmentList() {
+            return mediaSegments;
+        }
+
         void dump() {
             std::cout<<"--------------- dump M3UMedia ----------------"<<std::endl;
             std::cout<<"version: "<<version<<std::endl;

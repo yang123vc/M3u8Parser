@@ -38,6 +38,10 @@ class M3U8Parser {
             isM3U8File(false){
             }
 
+        M3UMedia* getM3uMedia() {
+            return m3uMedia;
+        }
+
         int parser(const char* data, int size) {
             int offset = 0;
             int lineNo = -1;
@@ -145,7 +149,7 @@ class M3U8Parser {
 
             if((playListType == M3U8_TYPE_MEDIA) && (m3uMedia != NULL)) {
                 m3uMedia->setM3UVersion(m3u8Version);
-                (*m3uMedia).dump();
+                //(*m3uMedia).dump();
             }
 
             std::cout<<"size is "<<mMediaSegmentVector.size()<<std::endl;
