@@ -23,7 +23,6 @@
 #include "MediaSegment.h"
 
 
-
 class HttpExeption : public std::logic_error {
     public:
         HttpExeption(const std::string & msg = "Unknow HttpExeption") : std::logic_error(msg) {
@@ -135,7 +134,6 @@ class Http {
             bev = bufferevent_socket_new(base, -1, BEV_OPT_CLOSE_ON_FREE);
             evcon = evhttp_connection_base_bufferevent_new(base, dnsbase, bev, (const char*)host.c_str(), (unsigned short)port);
             evhttp_connection_set_retries(evcon, maxRetries);
-            req = evhttp_request_new(myRequestCallBack, bev);
             if(!base || !bev || !evcon) {
                 return false;
             }
@@ -143,8 +141,23 @@ class Http {
         }
 
         bool request() {
+            std::cout<<"request start"<<std::endl;
+            struct timeval timeout;
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 100*1000;
+            int isReqSuccess = -1;
+            req = evhttp_request_new(myRequestCallBack, &isReqSuccess);
             evhttp_make_request(evcon, req, EVHTTP_REQ_GET, url.c_str());
-            event_base_dispatch(base);
+            while(true) {
+                std::cout<<"loop once"<<std::endl;
+                event_base_loopexit(base, &timeout);
+                //event_base_loop(base, EVLOOP_NONBLOCK);
+                event_base_dispatch(base);
+                if(isReqSuccess != -1) {
+                    break;
+                }
+            }
+            std::cout<<"request end"<<std::endl;
             return true;
         }
 
@@ -181,6 +194,7 @@ static void TsRequestCallBack(struct evhttp_request *req, void *ctx) {
     FILE *tsFile = fopen(currentTsWritePath.c_str(), "w+");
     int nread = 0;
     unsigned char* buf[1024];
+    int *isReqSuccess = (int*)ctx;
     std::cout<<"begin write "<<currentTsPath<<std::endl;
     if(req == NULL) {
         int errcode = EVUTIL_SOCKET_ERROR();
@@ -191,6 +205,7 @@ static void TsRequestCallBack(struct evhttp_request *req, void *ctx) {
                     buf, sizeof(buf) - 1)) > 0) {
         fwrite(buf, sizeof(unsigned char), nread, tsFile);
     }
+    *isReqSuccess = 1;
     std::cout<<"end write "<<currentTsPath<<std::endl;
     fclose(tsFile);
 }
@@ -202,6 +217,7 @@ static void M3u8RequestCallBack(struct evhttp_request *req, void *ctx) {
     char* buf = new char[contentLen];
     char* httpBuf = new char[1500];
     int currentPos = 0;
+    int *isReqSuccess = (int*)ctx;
     std::cout<<"start parse m3u8"<<std::endl;
     if(req == NULL) {
         int errcode = EVUTIL_SOCKET_ERROR();
@@ -216,6 +232,7 @@ static void M3u8RequestCallBack(struct evhttp_request *req, void *ctx) {
     //printf("%s\n", buf);
     parser = new M3U8Parser();
     parser->parser(buf, currentPos);
+    *isReqSuccess = 1;
     std::cout<<"parse m3u8 end"<<std::endl;
 }
 
@@ -228,7 +245,31 @@ class TsDownloadClient : public Http {
                 initHttpConn();
             }
 
+        bool request() {
+            std::cout<<"request start"<<std::endl;
+            struct timeval timeout;
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 100*1000;
+            int isReqSuccess = -1;
+            req = evhttp_request_new(myRequestCallBack, &isReqSuccess);
+            evhttp_make_request(evcon, req, EVHTTP_REQ_GET, url.c_str());
+            while(true) {
+                std::cout<<"loop once"<<std::endl;
+                event_base_loopexit(base, &timeout);
+                //event_base_loop(base, EVLOOP_NONBLOCK);
+                event_base_dispatch(base);
+                if(isReqSuccess != -1) {
+                    break;
+                }
+            }
+            evhttp_connection_free(evcon);
+            std::cout<<"request end"<<std::endl;
+            return true;
+        }
+
         ~TsDownloadClient() {
+            std::cout<<"~TsDownloadClient"<<std::endl;
+            event_base_free(base);
         }
 };
 
@@ -241,7 +282,31 @@ class M3u8DownloadClient : public Http {
                 initHttpConn();
             }
 
+        bool request() {
+            std::cout<<"request start"<<std::endl;
+            struct timeval timeout;
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 100*1000;
+            int isReqSuccess = -1;
+            req = evhttp_request_new(myRequestCallBack, &isReqSuccess);
+            evhttp_make_request(evcon, req, EVHTTP_REQ_GET, url.c_str());
+            while(true) {
+                std::cout<<"loop once"<<std::endl;
+                event_base_loopexit(base, &timeout);
+                //event_base_loop(base, EVLOOP_NONBLOCK);
+                event_base_dispatch(base);
+                if(isReqSuccess != -1) {
+                    break;
+                }
+            }
+            evhttp_connection_free(evcon);
+            std::cout<<"request end"<<std::endl;
+            return true;
+        }
+
         ~M3u8DownloadClient() {
+            std::cout<<"~M3u8DownloadClient"<<std::endl;
+            event_base_free(base);
         }
 };
 
